@@ -3,6 +3,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 import os
+import streamlit as st
+from langchain_core.prompts import PromptTemplate
 
 def lazy_load_pdf_pages(file_path):
     doc = fitz.open(file_path)
@@ -62,3 +64,25 @@ if add_documents:
 
 stored = vect_store.get(include=["documents"])
 print("Stored docs:", len(stored["documents"]))
+
+
+retriever = vect_store.as_retriever(search_type="similarity", search_kwargs={"k": 5})
+
+question = st.text_input('Enter text')
+if question.strip():  # Check if non-empty query
+    result = retriever.invoke(question)
+    st.write(result)
+
+    context_text = "\n\n".join(doc.page_content for doc in result)
+
+    prompt = PromptTemplate(
+        template="""
+        You are a helpful assistant.
+        Answer ONLY from the provided Bangla context.
+        If the context is insufficient, just say you don't know.
+
+        {context}
+        Question: {question}
+        """,
+        input_variables = ['context', 'question']
+    )
