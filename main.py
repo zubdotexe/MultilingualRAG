@@ -5,6 +5,8 @@ from langchain_chroma import Chroma
 import os
 import streamlit as st
 from langchain_core.prompts import PromptTemplate
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
 
 def lazy_load_pdf_pages(file_path):
     doc = fitz.open(file_path)
@@ -29,8 +31,8 @@ for page_number, page in enumerate(lazy_load_pdf_pages("HSC26-Bangla1st-Paper.pd
 # Splitting texts and creating documents
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=1000,
-    chunk_overlap=150,
-    separators=["\n\n", "\n", ".", "!", "?", " ", ""]
+    chunk_overlap=140,
+    separators=["\n", ".", "|", "!", "?", " ", ""]
 )
 
 documents = text_splitter.create_documents(texts, metadatas=metadatas)
@@ -41,11 +43,19 @@ print(documents[0].page_content)
 print(documents[0].metadata)
 
 # Embedding model for both Bangla and English
+class PrefixedHuggingFaceEmbeddings(HuggingFaceEmbeddings):
+    def embed_documents(self, texts):
+        texts = [f"passage: {t}" for t in texts]
+        return super().embed_documents(texts)
+
+    def embed_query(self, text):
+        return super().embed_query(f"query: {text}")
+    
 embedding = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-base")
 
 # Vector store using Chroma
 
-db_loc = './bn_chroma_db_mltlng'
+db_loc = './bn_chroma_db_mltlng_v9'
 add_documents = not os.path.exists(db_loc)
 
 ids = None
@@ -64,6 +74,9 @@ if add_documents:
 
 stored = vect_store.get(include=["documents"])
 print("Stored docs:", len(stored["documents"]))
+
+# for i in range(len(stored["documents"])):
+#     st.write(f"doc {i} size:", len(stored["documents"][i]))
 
 
 retriever = vect_store.as_retriever(search_type="similarity", search_kwargs={"k": 5})
@@ -86,3 +99,19 @@ if question.strip():  # Check if non-empty query
         """,
         input_variables = ['context', 'question']
     )
+
+    # LLM
+
+    load_dotenv()
+
+    llm = ChatOpenAI(
+        openai_api_base="https://openrouter.ai/api/v1",
+        openai_api_key=os.getenv('OPENROUTER_API_KEY'),
+        model="qwen/qwen3-235b-a22b-07-25:free"
+    )
+
+    final_prompt = prompt.invoke({"context": context_text, "question": question})
+
+    result = llm.invoke(final_prompt)
+    st.markdown("## Output:")
+    st.write(result.content)
